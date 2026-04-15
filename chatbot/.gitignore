@@ -146,3 +146,10 @@ dist
 .dev.vars*
 !.dev.vars.example
 !.env.example
+
+*.sqlite
+*.sqlite3
+node_modules/
+.next/
+.wrangler/
+dist/
