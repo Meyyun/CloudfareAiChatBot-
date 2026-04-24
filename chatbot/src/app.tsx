@@ -36,7 +36,8 @@ import {
   XIcon,
   WrenchIcon,
   PaperclipIcon,
-  ImageIcon
+  ImageIcon,
+  MicrophoneIcon
 } from "@phosphor-icons/react";
 
 // ── Attachment helpers ────────────────────────────────────────────────
@@ -226,6 +227,8 @@ function Chat() {
   const [showDebug, setShowDebug] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<{ stop: () => void } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -427,6 +430,33 @@ function Chat() {
     sendMessage({ role: "user", parts });
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, [input, attachments, isStreaming, sendMessage]);
+
+  const toggleVoiceInput = useCallback(() => {
+    // biome-ignore lint/suspicious/noExplicitAny: browser speech API lacks consistent types
+    const RecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!RecognitionClass) {
+      toasts.push({ title: "Voice input not supported in this browser", variant: "danger" });
+      return;
+    }
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+    // biome-ignore lint/suspicious/noExplicitAny: browser speech API
+    const recognition = new RecognitionClass() as any;
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      const transcript = e.results[0][0].transcript;
+      setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }, [isListening, toasts]);
 
   return (
     <div
@@ -897,6 +927,16 @@ function Chat() {
               disabled={!connected || isStreaming}
               rows={1}
               className="flex-1 ring-0! focus:ring-0! shadow-none! bg-transparent! outline-none! resize-none max-h-40"
+            />
+            <Button
+              type="button"
+              variant={isListening ? "primary" : "secondary"}
+              shape="square"
+              aria-label={isListening ? "Stop listening" : "Voice input"}
+              icon={<MicrophoneIcon size={18} />}
+              onClick={toggleVoiceInput}
+              disabled={isStreaming || !connected}
+              className="mb-0.5"
             />
             {isStreaming ? (
               <Button

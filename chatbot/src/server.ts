@@ -1,5 +1,6 @@
 import { createWorkersAI } from "workers-ai-provider";
 import { callable, routeAgentRequest, type Schedule } from "agents";
+export { ResearchWorkflow } from "./research-workflow";
 import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
@@ -70,10 +71,10 @@ export class ChatAgent extends AIChatAgent<Env> {
     const workersai = createWorkersAI({ binding: this.env.AI });
 
     const result = streamText({
-      model: workersai("@cf/moonshotai/kimi-k2.5", {
+      model: workersai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
         sessionAffinity: this.sessionAffinity
       }),
-      system: `You are a helpful assistant that can understand images. You can check the weather, get the user's timezone, run calculations, and schedule tasks. When users share images, describe what you see and answer questions about them.
+      system: `You are a helpful AI assistant powered by Llama 3.3. You can check the weather, get the user's timezone, run calculations, schedule tasks, and conduct deep multi-step research. Be concise, accurate, and helpful.
 
 ${getSchedulePrompt({ date: new Date() })}
 
@@ -193,6 +194,41 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
               return `Task ${taskId} cancelled.`;
             } catch (error) {
               return `Error cancelling task: ${error}`;
+            }
+          }
+        }),
+
+        // Workflow tool: runs a multi-step deep research Cloudflare Workflow
+        deepResearch: tool({
+          description:
+            "Conduct deep multi-step research on any topic or question. Uses a Cloudflare Workflow to break the question into sub-questions, research each one, and synthesize a comprehensive answer.",
+          inputSchema: z.object({
+            question: z.string().describe("The research question or topic to investigate")
+          }),
+          execute: async ({ question }) => {
+            try {
+              const instance = await this.env.RESEARCH_WORKFLOW.create({
+                params: { question }
+              });
+              // Poll until the workflow completes (max ~60s)
+              for (let i = 0; i < 30; i++) {
+                const status = await instance.status();
+                if (status.status === "complete") {
+                  const output = status.output as {
+                    originalQuestion: string;
+                    subQuestions: string[];
+                    synthesis: string;
+                  };
+                  return `**Research Complete**\n\n${output.synthesis}`;
+                }
+                if (status.status === "errored") {
+                  return "Research workflow encountered an error.";
+                }
+                await new Promise((r) => setTimeout(r, 2000));
+              }
+              return "Research is taking longer than expected. Please try again.";
+            } catch (error) {
+              return `Error running research workflow: ${error}`;
             }
           }
         })
